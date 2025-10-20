@@ -1,7 +1,7 @@
 
 from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import RootModel
 from typing import Any, Dict
 from .calculator import compare
 
@@ -15,9 +15,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ComparePayload(BaseModel):
-    __root__: Dict[str, Any]
+class ComparePayload(RootModel[Dict[str, Any]]):
+    pass
 
 @app.post("/compare")
 def compare_endpoint(payload: ComparePayload = Body(...)):
-    return compare(payload.__root__)
+    return compare(payload.root)
+
