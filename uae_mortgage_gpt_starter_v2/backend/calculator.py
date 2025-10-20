@@ -1,240 +1,224 @@
+from __future__ import annotations
 
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, List
 
-def emi(principal: float, monthly_rate: float, months: int) -> float:
-    if monthly_rate == 0:
+
+def _get_index_series(payload: Dict[str, Any], name: str) -> List[float]:
+    """Fetch an index series by name from rate_scenarios.base, fallback to last value if horizon > series len."""
+    base = payload.get("rate_scenarios", {}).get("base", {})
+    series = base.get(name, [])
+    if not series:
+        # If missing, assume flat 0 index rather than blowing up
+        return [0.0]
+    return series
+
+
+def _index_for_month(series: List[float], m: int) -> float:
+    """Return index value for month m (1-indexed). Extend by repeating last value for longer horizons."""
+    if m <= 0:
+        m = 1
+    return series[m - 1] if m - 1 < len(series) else series[-1]
+
+
+def _bps_to_decimal(bps: float) -> float:
+    return (bps or 0.0) / 10_000.0
+
+
+def _monthly_payment(principal: float, annual_rate: float, months: int) -> float:
+    """Standard fixed-rate monthly payment for a given period.
+    If annual_rate is 0, it's straight-line principal / months."""
+    if months <= 0:
+        return 0.0
+    r = annual_rate / 12.0
+    if abs(r) < 1e-12:
         return principal / months
-    factor = (1 + monthly_rate) ** months
-    return principal * monthly_rate * factor / (factor - 1)
+    return principal * (r * (1 + r) ** months) / ((1 + r) ** months - 1)
 
-def clamp(x: float, floor: float) -> float:
-    return max(x, floor)
 
-@dataclass
-class Terms:
-    bank: str
-    index_type: str
-    margin_bps: float
-    floor_rate_annual: float
-    reset_freq_months: int
-    life_insurance_method: str = "none"
-    life_insurance_value: float = 0.0
-    fees: List[Dict[str, Any]] = None
-    # Optional early settlement policy
-    es_percent: float = 0.0
-    es_cap_aed: float = 0.0
-    # For new offer specifics
-    fixed_rate_annual: Optional[float] = None
-    fixed_months: Optional[int] = None
-    reversion_index_type: Optional[str] = None
-    reversion_margin_bps: Optional[float] = None
+def _amortize_with_resets(
+    principal: float,
+    horizon_months: int,
+    reset_every_months: int,
+    annual_rate_for_month_fn,
+) -> Dict[str, float]:
+    """
+    Simulate month-by-month amortization with rate resets.
+    annual_rate_for_month_fn(m, outstanding) -> annual rate for month m.
+    Returns total_cash_out and outstanding at end of horizon.
+    """
+    outstanding = float(principal)
+    total_cash_out = 0.0
+    m = 1
+    while m <= horizon_months and outstanding > 0.01:
+        # Determine the next reset boundary
+        segment_len = min(reset_every_months if reset_every_months > 0 else horizon_months, horizon_months - m + 1)
+        # Lock the rate for this segment
+        annual_rate = annual_rate_for_month_fn(m, outstanding)
+        payment = _monthly_payment(outstanding, annual_rate, segment_len)
 
-def insurance_cost(method: str, value: float, outstanding: float) -> float:
-    if method == "percent_of_outstanding":
-        return outstanding * (value / 12.0)
-    if method == "fixed_monthly":
-        return value
-    return 0.0
+        for _ in range(segment_len):
+            r = annual_rate / 12.0
+            interest = outstanding * r
+            principal_pay = payment - interest
+            if principal_pay <= 0:
+                # Pathological rate vs term: at least pay interest
+                principal_pay = 0.0
+                payment = interest
+            outstanding = max(0.0, outstanding - principal_pay)
+            total_cash_out += payment
+            m += 1
+            if m > horizon_months or outstanding <= 0.01:
+                break
 
-def monthly_index(rate_curve: List[float], m: int) -> float:
-    if m - 1 < len(rate_curve):
-        return rate_curve[m - 1]
-    return rate_curve[-1]
+    return {"total_cash_out": total_cash_out, "outstanding_end": outstanding}
 
-def estimate_buyout_fees_if_missing(principal: float, provided_fees: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    provided_types = {f.get("type") for f in (provided_fees or [])}
-    est = []
-    if "processing_fee" not in provided_types:
-        est.append({"type": "processing_fee", "amount_aed": min(0.01 * principal, 10000.0), "timing": "upfront"})
-    if "valuation_fee" not in provided_types:
-        est.append({"type": "valuation_fee", "amount_aed": 2500.0, "timing": "upfront"})
-    if "dld_fee" not in provided_types:
-        est.append({"type": "dld_fee", "amount_aed": 0.0025 * principal + 290.0, "timing": "upfront"})
-    if "trustee_fee" not in provided_types:
-        est.append({"type": "trustee_fee", "amount_aed": 4200.0, "timing": "upfront"})
-    if "mortgage_registration_fee" not in provided_types:
-        est.append({"type": "mortgage_registration_fee", "amount_aed": 2000.0, "timing": "upfront"})
-    return est
 
-def estimate_release_and_liability_if_missing(provided_fees: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    provided_types = {f.get("type") for f in (provided_fees or [])}
-    est = []
-    if "release_letter_fee" not in provided_types:
-        est.append({"type": "release_letter_fee", "amount_aed": 1000.0, "timing": "upfront"})
-    if "liability_letter_fee" not in provided_types:
-        est.append({"type": "liability_letter_fee", "amount_aed": 100.0, "timing": "upfront"})
-    return est
+def _sum_optional_fees(payload: Dict[str, Any]) -> float:
+    """
+    Optional fee container (if you decide to pass granular fees later):
+      "fees": {
+        "dld": 0, "processing": 0, "valuation": 0, "registration": 0, "trustee": 0, "other": 0
+      }
+    """
+    fees = payload.get("fees", {})
+    keys = ["dld", "processing", "valuation", "registration", "trustee", "other"]
+    return sum(float(fees.get(k, 0.0) or 0.0) for k in keys)
 
-def run_option(principal: float, tenure_months: int, horizon_months: int, prepayments: List[Dict[str, Any]],
-               option: str, current: Terms, new: Terms, curves: Dict[str, List[float]],
-               recompute_policy: str = "on_reset_only", auto_estimate_buyout_fees: bool = True) -> Dict[str, Any]:
-    out = []
-    p = principal
-    fees_upfront = 0.0
-    monthly_fee_sum = 0.0
-    annual_fee_sum = 0.0
-
-    terms = current if option == "stay" else new
-    fees_list = []
-    if terms.fees:
-        fees_list.extend(terms.fees)
-
-    if option == "switch" and auto_estimate_buyout_fees:
-        fees_list.extend(estimate_buyout_fees_if_missing(principal, fees_list))
-        fees_list.extend(estimate_release_and_liability_if_missing(current.fees or []))
-
-    if option == "switch" and current.es_percent and current.es_percent > 0:
-        es_fee = principal * current.es_percent
-        if current.es_cap_aed and current.es_cap_aed > 0:
-            es_fee = min(es_fee, current.es_cap_aed)
-        fees_list.append({"type": "early_settlement_penalty_old_bank", "amount_aed": es_fee, "timing": "upfront"})
-
-    for fee in fees_list:
-        if fee.get("timing") == "upfront":
-            fees_upfront += fee.get("amount_aed", 0.0)
-        elif fee.get("timing") == "monthly":
-            monthly_fee_sum += fee.get("amount_aed", 0.0)
-        elif fee.get("timing") == "annual":
-            annual_fee_sum += fee.get("amount_aed", 0.0)
-
-    def rate_for_month(m: int) -> float:
-        if option == "stay":
-            idx_type = current.index_type
-            idx_curve = curves[idx_type]
-            annual = clamp(monthly_index(idx_curve, m), current.floor_rate_annual) + current.margin_bps / 10000.0
-            return annual / 12.0
-        else:
-            if m <= (new.fixed_months or 0):
-                return (new.fixed_rate_annual or 0.0) / 12.0
-            else:
-                idx_type = new.reversion_index_type or "EIBOR_3M"
-                idx_curve = curves[idx_type]
-                annual = clamp(monthly_index(idx_curve, m - (new.fixed_months or 0)), new.floor_rate_annual) + (new.reversion_margin_bps or 0.0) / 10000.0
-                return annual / 12.0
-
-    mrate = rate_for_month(1)
-    emi_val = emi(p, mrate, tenure_months)
-
-    total_cash = fees_upfront
-    months_elapsed = 0
-    prepay_map = {pp["month"]: pp for pp in prepayments} if prepayments else {}
-
-    while months_elapsed < horizon_months and p > 0 and months_elapsed < tenure_months:
-        m = months_elapsed + 1
-        if recompute_policy == "on_reset_only":
-            reset_freq = current.reset_freq_months if option == "stay" else (new.reset_freq_months or 3)
-            if m == 1 or (m - 1) % reset_freq == 0:
-                mrate = rate_for_month(m)
-                emi_val = emi(p, mrate, tenure_months - months_elapsed)
-        else:
-            mrate = rate_for_month(m)
-            emi_val = emi(p, mrate, tenure_months - months_elapsed)
-
-        interest = p * mrate
-        principal_paid = max(0.0, emi_val - interest)
-        p = max(0.0, p - principal_paid)
-
-        ins_cost = insurance_cost(terms.life_insurance_method or "none", terms.life_insurance_value or 0.0, p)
-        fees_monthly = monthly_fee_sum + (annual_fee_sum if m % 12 == 1 else 0.0)
-
-        if m in prepay_map:
-            pp = prepay_map[m]
-            amount = min(pp.get("amount", 0.0), p)
-            p -= amount
-            if pp.get("method") == "reduce_emi":
-                emi_val = emi(p, mrate, tenure_months - months_elapsed)
-
-        out.append({
-            "month": m,
-            "option": option,
-            "emi": round(emi_val, 2),
-            "interest": round(interest, 2),
-            "principal_paid": round(principal_paid, 2),
-            "fees": round(fees_monthly, 2),
-            "insurance": round(ins_cost, 2),
-            "principal_remaining": round(p, 2)
-        })
-
-        total_cash += emi_val + fees_monthly + ins_cost
-        months_elapsed += 1
-
-    return {"cashflows": out, "total_cash": round(total_cash, 2), "applied_upfront_fees": round(fees_upfront, 2), "fees_list": fees_list}
 
 def compare(input_payload: Dict[str, Any]) -> Dict[str, Any]:
-    principal = input_payload["principal_aed"]
-    tenure = input_payload["tenure_months"]
-    horizon = input_payload["horizon_months"]
-    prepayments = input_payload.get("prepayment_plan", [])
-    scenarios = input_payload["rate_scenarios"]["base"]
-    auto_estimate = input_payload.get("assumptions", {}).get("auto_estimate_buyout_fees", True)
+    """
+    Core comparison routine.
+    Expects the structure you've been using in tests:
+      principal_aed, tenure_months, horizon_months,
+      current_terms { index_type, margin_bps, reset_freq_months, early_settlement {percent_of_outstanding, cap_aed}, ... },
+      new_offer { fixed_rate_annual, fixed_months, reversion_index_type, reversion_margin_bps, reset_freq_months, ... },
+      rate_scenarios { base: { EIBOR_1M: [...], EIBOR_3M: [...] } }
+    """
+    p = input_payload
 
-    curves = {
-        "EIBOR_1M": scenarios["EIBOR_1M"],
-        "EIBOR_3M": scenarios["EIBOR_3M"]
-    }
+    # Required
+    principal = float(p["principal_aed"])
+    tenure_months = int(p["tenure_months"])
+    horizon = int(p["horizon_months"])
 
-    cur = input_payload["current_terms"]
-    new = input_payload["new_offer"]
+    # --- Current terms (stay) ---
+    cur = p["current_terms"]
+    cur_idx_type = cur.get("index_type", "EIBOR_1M")
+    cur_margin = _bps_to_decimal(float(cur.get("margin_bps", 0)))
+    cur_reset = int(cur.get("reset_freq_months", 1))
+    es = cur.get("early_settlement", {})
+    es_pct = float(es.get("percent_of_outstanding", 0.01))  # default 1%
+    es_cap = float(es.get("cap_aed", 10000))                # cap AED 10k by default
 
-    current_terms = Terms(
-        bank=cur["bank"],
-        index_type=cur["index_type"],
-        margin_bps=cur["margin_bps"],
-        floor_rate_annual=cur.get("floor_rate_annual", 0.0),
-        reset_freq_months=cur["reset_freq_months"],
-        life_insurance_method=cur.get("life_insurance_method", "none"),
-        life_insurance_value=cur.get("life_insurance_value", 0.0),
-        fees=cur.get("fees", []),
-        es_percent=(cur.get("early_settlement", {}) or {}).get("percent_of_outstanding", 0.0),
-        es_cap_aed=(cur.get("early_settlement", {}) or {}).get("cap_aed", 0.0)
+    # --- New offer (switch) ---
+    new = p["new_offer"]
+    fx_rate = float(new.get("fixed_rate_annual", 0.0))
+    fx_months = int(new.get("fixed_months", 0))
+    rev_idx_type = new.get("reversion_index_type", "EIBOR_3M")
+    rev_margin = _bps_to_decimal(float(new.get("reversion_margin_bps", 0)))
+    new_reset = int(new.get("reset_freq_months", 3))
+
+    # Indices
+    series_1m = _get_index_series(p, "EIBOR_1M")
+    series_3m = _get_index_series(p, "EIBOR_3M")
+
+    def _series_for_name(name: str) -> List[float]:
+        return series_1m if name == "EIBOR_1M" else series_3m
+
+    # ---------------------------
+    # Scenario A: STAY with current terms
+    # ---------------------------
+    cur_series = _series_for_name(cur_idx_type)
+
+    def cur_annual_rate_for_month(m: int, outstanding: float) -> float:
+        return _index_for_month(cur_series, m) + cur_margin
+
+    stay = _amortize_with_resets(
+        principal=principal,
+        horizon_months=horizon,
+        reset_every_months=cur_reset,
+        annual_rate_for_month_fn=cur_annual_rate_for_month,
     )
-    new_terms = Terms(
-        bank=new["bank"],
-        index_type=new.get("reversion_index_type", "EIBOR_3M"),
-        margin_bps=new.get("reversion_margin_bps", 0.0),
-        floor_rate_annual=new.get("floor_rate_annual", 0.0),
-        reset_freq_months=new.get("reset_freq_months", 3),
-        life_insurance_method=cur.get("life_insurance_method", "none"),
-        life_insurance_value=cur.get("life_insurance_value", 0.0),
-        fees=new.get("fees", []),
-        fixed_rate_annual=new["fixed_rate_annual"],
-        fixed_months=new["fixed_months"],
-        reversion_index_type=new.get("reversion_index_type", "EIBOR_3M"),
-        reversion_margin_bps=new.get("reversion_margin_bps", 0.0),
+    stay_total_cash = stay["total_cash_out"]
+
+    # ---------------------------
+    # Scenario B: SWITCH to new offer
+    # - Includes early settlement penalty on today's outstanding (approx = principal for horizon start),
+    #   then applies optional fees if provided.
+    # ---------------------------
+    # Early settlement on outstanding at t=0 (approx.)
+    early_settlement_penalty = min(principal * es_pct, es_cap)
+
+    # User-provided fees (DLD, processing, valuation, registration, trustee, etc.)
+    other_fees = _sum_optional_fees(p)
+    upfront_fees_switch = early_settlement_penalty + other_fees
+
+    rev_series = _series_for_name(rev_idx_type)
+
+    def switch_annual_rate_for_month(m: int, outstanding: float) -> float:
+        # Fixed for the first fx_months, then index + margin
+        if m <= max(0, fx_months):
+            return fx_rate
+        return _index_for_month(rev_series, m) + rev_margin
+
+    switch = _amortize_with_resets(
+        principal=principal,
+        horizon_months=horizon,
+        reset_every_months=new_reset,
+        annual_rate_for_month_fn=switch_annual_rate_for_month,
     )
+    switch_total_cash = switch["total_cash_out"] + upfront_fees_switch
 
-    recompute_policy = input_payload.get("assumptions", {}).get("recompute_policy", "on_reset_only")
+    # ---------------------------
+    # Summary & recommendation
+    # ---------------------------
+    recommendation = "Switch" if switch_total_cash < stay_total_cash else "Stay"
 
-    stay = run_option(principal, tenure, horizon, prepayments, "stay", current_terms, new_terms, curves, recompute_policy, auto_estimate)
-    switch = run_option(principal, tenure, horizon, prepayments, "switch", current_terms, new_terms, curves, recompute_policy, auto_estimate)
-
+    # Simple break-even heuristic: first month where cumulative switch < stay
+    # (quick & understandable fallback without a second pass)
+    break_even_month = None
     cum_stay = 0.0
-    cum_switch = 0.0
-    break_even = None
-    for m in range(min(len(stay["cashflows"]), len(switch["cashflows"]))):
-        cum_stay += stay["cashflows"][m]["emi"] + stay["cashflows"][m]["fees"] + stay["cashflows"][m]["insurance"]
-        cum_switch += switch["cashflows"][m]["emi"] + switch["cashflows"][m]["fees"] + switch["cashflows"][m]["insurance"]
-        if break_even is None and cum_switch <= cum_stay:
-            break_even = m + 1
+    cum_switch = upfront_fees_switch
+    outstanding_a = float(principal)
+    outstanding_b = float(principal)
 
-    recommendation = "switch" if switch["total_cash"] < stay["total_cash"] else "stay"
+    # A small per-month replay using same logic to find a crossing point
+    ms = 1
+    while ms <= horizon and break_even_month is None:
+        # stay month
+        rate_a = cur_annual_rate_for_month(ms, outstanding_a)
+        pay_a = _monthly_payment(outstanding_a, rate_a, max(1, min(cur_reset, horizon - ms + 1)))
+        # recompute actual paid for one month
+        interest_a = outstanding_a * (rate_a / 12.0)
+        principal_a = max(0.0, pay_a - interest_a)
+        outstanding_a = max(0.0, outstanding_a - principal_a)
+        cum_stay += pay_a
+
+        # switch month
+        rate_b = switch_annual_rate_for_month(ms, outstanding_b)
+        pay_b = _monthly_payment(outstanding_b, rate_b, max(1, min(new_reset, horizon - ms + 1)))
+        interest_b = outstanding_b * (rate_b / 12.0)
+        principal_b = max(0.0, pay_b - interest_b)
+        outstanding_b = max(0.0, outstanding_b - principal_b)
+        cum_switch += pay_b
+
+        if cum_switch <= cum_stay:
+            break_even_month = ms
+        ms += 1
 
     return {
         "summary": {
-            "stay_total_cash_out_aed": stay["total_cash"],
-            "switch_total_cash_out_aed": switch["total_cash"],
-            "break_even_month": break_even,
+            "stay_total_cash_out_aed": round(stay_total_cash, 2),
+            "switch_total_cash_out_aed": round(switch_total_cash, 2),
+            "break_even_month": break_even_month,
             "recommendation": recommendation,
-            "assumptions_note": "Base scenario with automatic UAE buyout fee estimates applied."
-        },
-        "monthly_cashflows": stay["cashflows"] + switch["cashflows"],
-        "fees_breakdown": {
-            "stay": stay["fees_list"],
-            "switch": switch["fees_list"]
+            "assumptions_note": (
+                "Early settlement penalty applied on current outstanding with cap; "
+                "optional fees added if provided; rates follow input indices/margins."
+            ),
         },
         "upfront_fees_applied": {
-            "stay": stay["applied_upfront_fees"],
-            "switch": switch["applied_upfront_fees"]
-        }
+            "stay": 0.0,
+            "switch": round(upfront_fees_switch, 2),
+        },
     }
