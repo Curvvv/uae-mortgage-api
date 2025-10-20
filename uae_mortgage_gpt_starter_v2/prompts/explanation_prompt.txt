@@ -1,0 +1,2 @@
+Given this result JSON from the calculator, write a clear advisory for a UAE homeowner.
+Include: total cash out for stay and switch, break even month if any, a one line recommendation, the three largest cost drivers, and a short risk note about EIBOR moves and prepayment behavior. Use bullet points. Avoid marketing language.

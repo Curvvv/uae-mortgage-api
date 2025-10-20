@@ -1,0 +1,326 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MortgageComparisonInput",
+  "type": "object",
+  "required": [
+    "principal_aed",
+    "tenure_months",
+    "horizon_months",
+    "current_terms",
+    "new_offer",
+    "rate_scenarios"
+  ],
+  "properties": {
+    "principal_aed": {
+      "type": "number",
+      "minimum": 0
+    },
+    "tenure_months": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "horizon_months": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "prepayment_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "month",
+          "amount",
+          "method"
+        ],
+        "properties": {
+          "month": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "reduce_tenure",
+              "reduce_emi"
+            ]
+          }
+        }
+      },
+      "default": []
+    },
+    "assumptions": {
+      "type": "object",
+      "properties": {
+        "discount_rate_annual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "recompute_policy": {
+          "type": "string",
+          "enum": [
+            "on_reset_only",
+            "monthly_if_rate_changes"
+          ],
+          "default": "on_reset_only"
+        },
+        "auto_estimate_buyout_fees": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "default": {
+        "recompute_policy": "on_reset_only",
+        "auto_estimate_buyout_fees": true
+      }
+    },
+    "current_terms": {
+      "type": "object",
+      "required": [
+        "bank",
+        "index_type",
+        "margin_bps",
+        "reset_freq_months"
+      ],
+      "properties": {
+        "bank": {
+          "type": "string"
+        },
+        "product_name": {
+          "type": "string"
+        },
+        "index_type": {
+          "type": "string",
+          "enum": [
+            "EIBOR_1M",
+            "EIBOR_3M"
+          ]
+        },
+        "margin_bps": {
+          "type": "number"
+        },
+        "floor_rate_annual": {
+          "type": "number",
+          "default": 0
+        },
+        "reset_freq_months": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "life_insurance_method": {
+          "type": "string",
+          "enum": [
+            "percent_of_outstanding",
+            "fixed_monthly",
+            "none"
+          ],
+          "default": "none"
+        },
+        "life_insurance_value": {
+          "type": "number",
+          "default": 0
+        },
+        "fees": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "amount_aed",
+              "timing"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "amount_aed": {
+                "type": "number"
+              },
+              "timing": {
+                "type": "string",
+                "enum": [
+                  "upfront",
+                  "monthly",
+                  "annual"
+                ]
+              }
+            }
+          },
+          "default": []
+        },
+        "early_settlement": {
+          "type": "object",
+          "properties": {
+            "percent_of_outstanding": {
+              "type": "number",
+              "default": 0.01
+            },
+            "cap_aed": {
+              "type": "number",
+              "default": 10000
+            }
+          },
+          "default": {
+            "percent_of_outstanding": 0.01,
+            "cap_aed": 10000
+          }
+        }
+      }
+    },
+    "new_offer": {
+      "type": "object",
+      "required": [
+        "bank",
+        "fixed_rate_annual",
+        "fixed_months"
+      ],
+      "properties": {
+        "bank": {
+          "type": "string"
+        },
+        "product_name": {
+          "type": "string"
+        },
+        "fixed_rate_annual": {
+          "type": "number"
+        },
+        "fixed_months": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reversion_index_type": {
+          "type": "string",
+          "enum": [
+            "EIBOR_1M",
+            "EIBOR_3M"
+          ],
+          "default": "EIBOR_3M"
+        },
+        "reversion_margin_bps": {
+          "type": "number",
+          "default": 0
+        },
+        "floor_rate_annual": {
+          "type": "number",
+          "default": 0
+        },
+        "reset_freq_months": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3
+        },
+        "fees": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "amount_aed",
+              "timing"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "amount_aed": {
+                "type": "number"
+              },
+              "timing": {
+                "type": "string",
+                "enum": [
+                  "upfront",
+                  "monthly",
+                  "annual"
+                ]
+              }
+            }
+          },
+          "default": []
+        },
+        "early_settlement": {
+          "type": "object",
+          "properties": {
+            "percent_of_outstanding": {
+              "type": "number",
+              "default": 0.0
+            },
+            "cap_aed": {
+              "type": "number",
+              "default": 0.0
+            }
+          },
+          "default": {
+            "percent_of_outstanding": 0.0,
+            "cap_aed": 0.0
+          }
+        }
+      }
+    },
+    "rate_scenarios": {
+      "type": "object",
+      "required": [
+        "base"
+      ],
+      "properties": {
+        "base": {
+          "type": "object",
+          "required": [
+            "EIBOR_1M",
+            "EIBOR_3M"
+          ],
+          "properties": {
+            "EIBOR_1M": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "EIBOR_3M": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "optimistic": {
+          "type": "object",
+          "properties": {
+            "EIBOR_1M": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "EIBOR_3M": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "conservative": {
+          "type": "object",
+          "properties": {
+            "EIBOR_1M": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            },
+            "EIBOR_3M": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

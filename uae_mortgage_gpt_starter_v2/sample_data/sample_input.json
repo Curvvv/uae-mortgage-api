@@ -1,0 +1,126 @@
+{
+  "principal_aed": 1360000,
+  "tenure_months": 167,
+  "horizon_months": 36,
+  "prepayment_plan": [
+    {
+      "month": 12,
+      "amount": 200000,
+      "method": "reduce_tenure"
+    }
+  ],
+  "assumptions": {
+    "recompute_policy": "on_reset_only",
+    "auto_estimate_buyout_fees": true
+  },
+  "current_terms": {
+    "bank": "ENBD",
+    "product_name": "Variable rollover",
+    "index_type": "EIBOR_1M",
+    "margin_bps": 210,
+    "floor_rate_annual": 0.0,
+    "reset_freq_months": 1,
+    "life_insurance_method": "percent_of_outstanding",
+    "life_insurance_value": 0.001,
+    "fees": [],
+    "early_settlement": {
+      "percent_of_outstanding": 0.01,
+      "cap_aed": 10000
+    }
+  },
+  "new_offer": {
+    "bank": "FAB",
+    "product_name": "Fixed then variable",
+    "fixed_rate_annual": 0.0399,
+    "fixed_months": 3,
+    "reversion_index_type": "EIBOR_3M",
+    "reversion_margin_bps": 150,
+    "floor_rate_annual": 0.0199,
+    "reset_freq_months": 3,
+    "fees": [],
+    "early_settlement": {
+      "percent_of_outstanding": 0.0,
+      "cap_aed": 0.0
+    }
+  },
+  "rate_scenarios": {
+    "base": {
+      "EIBOR_1M": [
+        0.041,
+        0.04,
+        0.039,
+        0.038,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037,
+        0.037
+      ],
+      "EIBOR_3M": [
+        0.042,
+        0.041,
+        0.04,
+        0.039,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038,
+        0.038
+      ]
+    }
+  }
+}

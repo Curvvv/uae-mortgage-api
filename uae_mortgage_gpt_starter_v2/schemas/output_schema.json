@@ -1,0 +1,93 @@
+{
+  "title": "MortgageComparisonOutput",
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "object",
+      "properties": {
+        "stay_total_cash_out_aed": {
+          "type": "number"
+        },
+        "switch_total_cash_out_aed": {
+          "type": "number"
+        },
+        "break_even_month": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recommendation": {
+          "type": "string"
+        },
+        "assumptions_note": {
+          "type": "string"
+        }
+      }
+    },
+    "monthly_cashflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "integer"
+          },
+          "option": {
+            "type": "string",
+            "enum": [
+              "stay",
+              "switch"
+            ]
+          },
+          "emi": {
+            "type": "number"
+          },
+          "interest": {
+            "type": "number"
+          },
+          "principal_paid": {
+            "type": "number"
+          },
+          "fees": {
+            "type": "number"
+          },
+          "insurance": {
+            "type": "number"
+          },
+          "principal_remaining": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "fees_breakdown": {
+      "type": "object",
+      "properties": {
+        "stay": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "switch": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "upfront_fees_applied": {
+      "type": "object",
+      "properties": {
+        "stay": {
+          "type": "number"
+        },
+        "switch": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

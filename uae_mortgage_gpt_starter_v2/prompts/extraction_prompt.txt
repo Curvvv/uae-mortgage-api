@@ -1,0 +1,4 @@
+Extract fields from this UAE mortgage PDF or image. Return JSON only with these keys:
+bank, product_name, principal_outstanding_aed, tenure_months, fixed_rate_annual, fixed_months, index_type, margin_bps, reset_freq_months, floor_rate_annual, life_insurance_method, life_insurance_value, fees[].
+For each fee include: type, amount_aed, timing (upfront, monthly, annual).
+If missing, set value to null and add a notes array with page references.
