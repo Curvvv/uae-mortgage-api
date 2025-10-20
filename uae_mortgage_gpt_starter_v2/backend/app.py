@@ -3,7 +3,7 @@ from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Dict
-from calculator import compare
+from .calculator import compare
 
 app = FastAPI(title="UAE Mortgage Comparison API", version="0.2.0")
 
