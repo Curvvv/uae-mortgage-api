@@ -8,7 +8,7 @@ from typing import Any, Dict
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from calculator import compare  # local module
+from .calculator import compare  # local module
 
 # -----------------------------------------------------------------------------
 # App & Logging
